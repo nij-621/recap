@@ -196,7 +196,7 @@ const LENGTH_SPEC = {
   standard: {
     ko: `형식 (마크다운, 헤딩은 정확히 아래대로):
 ## 결론
-- 결론·주장 3개. 각각 한 문장. "영상은 ~를 다룬다" 같은 설명이 아니라, 화자가 실제로 주장하는 내용(So what)을 쓴다.
+- 결론·주장 3개. 각각 한 문장. "영상은 ~를 다룬다" 같은 설명이 아니라, 화자가 실제로 주장하는 내용(So what)을 쓴다. 각 문장에서 가장 중요한 구절 하나(3~10자 내외)만 **굵게** 표시한다.
 ## 핵심 내용
 - 5~10개 불릿. 각 불릿은 "주장 — 근거/이유" 구조. 핵심 주장 끝에는 출처 타임스탬프 [mm:ss]를 붙인다.
 ## 팩트
@@ -207,7 +207,7 @@ const LENGTH_SPEC = {
 - 영상 전체를 순서대로 8~15개 구간으로. 각 줄은 정확히 "- [mm:ss] 구간 주제" 형태 (주제는 15자 내외).`,
     en: `Format (markdown, headings exactly as below):
 ## Conclusion
-- 3 takeaways, one sentence each. Not "the video discusses X" — state what the speaker actually claims (the "so what").
+- 3 takeaways, one sentence each. Not "the video discusses X" — state what the speaker actually claims (the "so what"). Mark the single most important phrase (2–5 words) in each sentence in **bold**.
 ## Key points
 - 5–10 bullets. Each bullet = "claim — evidence/reasoning". End key claims with a source timestamp [mm:ss].
 ## Facts
@@ -220,13 +220,13 @@ const LENGTH_SPEC = {
   short: {
     ko: `형식 (마크다운, 헤딩은 정확히 아래대로):
 ## 결론
-- 결론·주장 3개, 각 한 문장. 화자의 실제 주장(So what)만. 핵심 주장 끝에 [mm:ss].
+- 결론·주장 3개, 각 한 문장. 화자의 실제 주장(So what)만. 각 문장에서 가장 중요한 구절 하나만 **굵게**. 핵심 주장 끝에 [mm:ss].
 ## 숫자
 - 가장 중요한 수치·종목·날짜 최대 3개. "항목 — 값 [mm:ss]". 없으면 이 섹션 생략.
 그 외 섹션은 쓰지 않는다.`,
     en: `Format (markdown, headings exactly as below):
 ## Conclusion
-- 3 takeaways, one sentence each. Only what the speaker actually claims. End key claims with [mm:ss].
+- 3 takeaways, one sentence each. Only what the speaker actually claims. Mark the single most important phrase in each in **bold**. End key claims with [mm:ss].
 ## Numbers
 - Up to 3 most important figures/tickers/dates. "item — value [mm:ss]". Omit this section if none.
 Write nothing else.`,
@@ -234,7 +234,7 @@ Write nothing else.`,
   detailed: {
     ko: `형식 (마크다운):
 ## 결론
-- 결론·주장 3~5개, 각 한 문장, 핵심 주장 끝에 [mm:ss].
+- 결론·주장 3~5개, 각 한 문장, 각 문장의 핵심 구절 하나만 **굵게**, 핵심 주장 끝에 [mm:ss].
 ## 상세
 영상의 주제 흐름을 따라 ### 소제목으로 나눈다(4~8개). 각 소제목 아래에 화자의 주장, 근거, 예시, 숫자를 빠짐없이 불릿이나 짧은 문단으로 정리한다. 주장·숫자마다 [mm:ss]를 붙인다. 화자 간 의견 차이가 있으면 누가 뭐라 했는지 구분한다.
 ## 팩트
@@ -245,7 +245,7 @@ Write nothing else.`,
 - 일반 독자가 모를 수 있는 용어·약어 3~8개를 한 줄씩 설명. 없으면 생략.`,
     en: `Format (markdown):
 ## Conclusion
-- 3–5 takeaways, one sentence each, key claims end with [mm:ss].
+- 3–5 takeaways, one sentence each, the key phrase of each in **bold**, key claims end with [mm:ss].
 ## In detail
 Follow the video's flow with ### subheadings (4–8). Under each, capture the speaker's claims, reasoning, examples and numbers exhaustively as bullets or short paragraphs. Attach [mm:ss] to claims and numbers. If speakers disagree, attribute who said what.
 ## Facts
@@ -340,7 +340,7 @@ function firstBullets(md, n = 3) {
   for (const line of md.split('\n')) {
     if (/^## /.test(line) && out.length) break;
     const m = line.match(/^\s*[-*]\s+(.*)$/);
-    if (m) out.push(m[1].replace(TS_RE, '').replace(/\*\*/g, '').trim());
+    if (m) out.push(m[1].replace(TS_RE, '').trim());   // keeps **bold** → rendered as highlighter in the list
     if (out.length >= n) break;
   }
   return out;
@@ -421,6 +421,50 @@ function renderMarkdown(md, videoId, { tldrFirst = true } = {}) {
     para.push(line.trim());
   }
   flushAll(); closeTldr();
+  return html;
+}
+/* Summary = sections split at "## ". First section → highlighter card; Facts/Numbers → stat cards; Risks → soft box. */
+const FACT_HEAD = /^(팩트|숫자|facts|numbers|key numbers)$/i;
+const RISK_HEAD = /^(반론|리스크|counterpoints|risks)/i;
+function parseFacts(body) {
+  const out = [];
+  for (const line of body.split('\n')) {
+    const m = line.match(/^\s*(?:[-*]|\d+\.)\s+(.*)$/);
+    if (!m) continue;
+    let text = m[1].trim(), ts = null;
+    text = text.replace(TS_RE, (_, t) => { ts = ts || t; return ''; }).replace(/\*\*/g, '').trim();
+    const sp = text.match(/^(.+?)\s+(?:—|–|-|:)\s+(.+)$/) || text.match(/^(.+?):\s*(.+)$/);
+    if (!sp) return [];   // one non-conforming line → fall back to a plain list
+    out.push({ label: sp[1].trim(), value: sp[2].trim().replace(/[.。]$/, ''), ts });
+  }
+  return out;
+}
+function factsGrid(facts, videoId) {
+  return `<div class="facts">${facts.map(f => `<div class="fact"><b>${inline(f.value, null)}</b><small>${inline(f.label, null)}</small>${
+    f.ts ? (videoId ? `<a class="ts" href="${atUrl(videoId, f.ts)}" target="_blank" rel="noopener">${f.ts}</a>` : `<span class="ts">${f.ts}</span>`) : ''}</div>`).join('')}</div>`;
+}
+function renderSummary(md, videoId) {
+  const lines = (md || '').replace(/\r/g, '').split('\n');
+  const parts = []; let cur = { head: null, body: [] };
+  for (const l of lines) {
+    const m = l.match(/^##\s+(.*)$/);
+    if (m) { parts.push(cur); cur = { head: m[1].trim(), body: [] }; } else cur.body.push(l);
+  }
+  parts.push(cur);
+  let html = '', first = true;
+  for (const p of parts) {
+    const body = p.body.join('\n').trim();
+    if (p.head === null) { if (body) html += renderMarkdown(body, videoId, { tldrFirst: false }); continue; }
+    const h = p.head.replace(/\*\*/g, '').replace(/:$/, '').trim();
+    if (FACT_HEAD.test(h)) {
+      const facts = parseFacts(body);
+      if (facts.length >= 2) { html += `<h2>${inline(h, null)}</h2>${factsGrid(facts, videoId)}`; first = false; continue; }
+    }
+    let sec = renderMarkdown(`## ${p.head}\n${body}`, videoId, { tldrFirst: first });
+    if (RISK_HEAD.test(h) && !first) sec = sec.replace('</h2>', '</h2><div class="riskbox">') + '</div>';
+    html += sec;
+    first = false;
+  }
   return html;
 }
 function renderTranscript(text, videoId) {
@@ -658,7 +702,7 @@ function renderHome() {
   el.innerHTML = `
   <section class="view fade-in">
     <div class="hero">
-      <h1>What did they actually say?</h1>
+      <h1>Long video.<br><mark>Three-line answer.</mark></h1>
       <p>Paste a YouTube link. Get the conclusion first, then the evidence — with timestamps you can check.</p>
     </div>
     <form class="inputcard" id="urlForm" autocomplete="off">
@@ -709,7 +753,7 @@ function renderList(q) {
       <div class="item-body">
         <div class="item-title">${esc(r.title || (r.status === 'transcribing' ? 'Reading video…' : 'Untitled'))}</div>
         <div class="item-meta">${r.channel ? `<span>${esc(r.channel)}</span><span class="sep">·</span>` : ''}<span>${fmtDate(r.createdAt)}</span>${r.duration ? `<span class="sep">·</span><span>${fmtDuration(r.duration)}</span>` : ''}</div>
-        ${statusLine(r) || (r.tldr ? `<div class="item-tldr">${esc(r.tldr)}</div>` : '')}
+        ${statusLine(r) || (r.tldr ? `<div class="item-tldr">${inline(r.tldr, null)}</div>` : '')}
       </div>
     </button>`).join('');
   list.querySelectorAll('.item').forEach(b => b.onclick = () => go(`#v/${b.dataset.id}`));
@@ -829,7 +873,7 @@ function renderPanel(rec) {
   }
   const md = rec.summaries?.[detailTab];
   if (md) {
-    let html = `<div class="prose">${renderMarkdown(md, rec.videoId)}</div>`;
+    let html = `<div class="prose">${renderSummary(md, rec.videoId)}</div>`;
     if (detailTab === 'standard' && rec.timeline?.length) {
       html += `<div class="prose"><h2>${(rec.summaryLang || {}).standard === "ko" ? "타임라인" : "Timeline"}</h2><ul class="timeline">${rec.timeline.map(x =>
         `<li>${rec.videoId ? `<a class="ts" href="${atUrl(rec.videoId, x.t)}" target="_blank" rel="noopener">${x.t}</a>` : `<span class="ts">${x.t}</span>`}<span class="tl-title">${esc(x.title)}</span></li>`).join('')}</ul></div>`;
@@ -985,7 +1029,7 @@ listeners.add((type, id, extra) => {
       const now = Date.now();
       if (now - liveRenderAt > 200) {
         liveRenderAt = now;
-        p.innerHTML = `<div class="prose">${renderMarkdown(splitTimeline(extra || '').summary, rec.videoId)}</div>`;
+        p.innerHTML = `<div class="prose">${renderSummary(splitTimeline(extra || '').summary, rec.videoId)}</div>`;
       }
     }
     return;
