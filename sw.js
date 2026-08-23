@@ -1,5 +1,5 @@
 // Recap SW — network first (updates land immediately), cache fallback so saved recaps open offline
-const CACHE = 'recap-v2';
+const CACHE = 'recap-v3';
 const SHELL = ['./', './index.html', './style.css', './app.js', './manifest.webmanifest', './icon-180.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
