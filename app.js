@@ -638,7 +638,7 @@ const go = hash => { location.hash = hash; };
 /* ---------- Views ---------- */
 const app = () => $('app');
 let currentView = '';
-let liveEl = null;   // element showing streaming text in detail view
+let liveEl = null, liveRenderAt = 0;   // streaming text element / last live panel render
 
 function render() {
   const h = location.hash || '';
@@ -769,7 +769,7 @@ function renderDetailBody(rec) {
     html += `<div class="progress">
       <div class="row"><span class="spinner"></span><div><div class="label">${label}</div><div class="sub">${sub}</div></div></div>
       ${rec.source === 'paste' ? '' : `<div class="steps"><span class="${stepIdx > 0 ? 'done' : 'on'}"></span><span class="${stepIdx === 1 ? 'on' : ''}"></span></div>`}
-      <div class="live" id="live">${esc((rec.live || '').slice(-600))}</div>
+      ${rec.status === 'transcribing' ? `<div class="live" id="live">${esc((rec.live || '').slice(-600))}</div>` : ''}
       <div class="btn-row"><button class="btn btn-ghost" id="btnStop">Stop</button></div>
     </div>`;
   }
@@ -973,9 +973,20 @@ function renderSettings() {
 /* ---------- Live updates ---------- */
 listeners.add((type, id, extra) => {
   if (type === 'live') {
-    if (currentView === 'detail' && location.hash === `#v/${id}` && liveEl) {
+    if (currentView !== 'detail' || location.hash !== `#v/${id}`) return;
+    if (liveEl) {
       liveEl.textContent = (extra || '').slice(-600);
       liveEl.scrollTop = liveEl.scrollHeight;
+    }
+    // While a summary streams in, render it live in the panel (throttled)
+    const rec = byId(id);
+    const p = $('panel');
+    if (rec && p && rec.status === 'summarizing' && detailTab === rec.summarizing) {
+      const now = Date.now();
+      if (now - liveRenderAt > 200) {
+        liveRenderAt = now;
+        p.innerHTML = `<div class="prose">${renderMarkdown(splitTimeline(extra || '').summary, rec.videoId)}</div>`;
+      }
     }
     return;
   }
